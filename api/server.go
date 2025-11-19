@@ -14,13 +14,16 @@ import (
 	"nofx/decision"
 	"nofx/hook"
 	"nofx/manager"
+	"nofx/market"
 	"nofx/trader"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 // Server HTTP API服务器
@@ -96,6 +99,12 @@ func (s *Server) setupRoutes() {
 		// 加密相关接口（无需认证）
 		api.GET("/crypto/public-key", s.cryptoHandler.HandleGetPublicKey)
 		api.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
+
+		// 实时行情数据接口（无需认证）
+		api.GET("/market/overview", s.handleMarketOverview)
+		api.GET("/market/symbols", s.handleMarketSymbols)
+		api.GET("/market/data/:symbol", s.handleMarketData)
+		api.GET("/ws/market", s.handleMarketWebSocket)
 
 		// 系统提示词模板管理（无需认证）
 		api.GET("/prompt-templates", s.handleGetPromptTemplates)
@@ -2294,5 +2303,205 @@ func (s *Server) reloadPromptTemplatesWithLog(templateName string) {
 		log.Printf("✓ 已重新加载系统提示词模板 [当前使用: default (未指定，使用默认)]")
 	} else {
 		log.Printf("✓ 已重新加载系统提示词模板 [当前使用: %s]", templateName)
+	}
+}
+
+// handleMarketOverview 获取市场概览数据
+func (s *Server) handleMarketOverview(c *gin.Context) {
+	// 获取默认币种列表
+	defaultCoins := []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"}
+	
+	// 如果有配置的币种，使用配置的
+	if defaultCoinsStr, _ := s.database.GetSystemConfig("default_coins"); defaultCoinsStr != "" {
+		var coins []string
+		if json.Unmarshal([]byte(defaultCoinsStr), &coins) == nil && len(coins) > 0 {
+			defaultCoins = coins
+		}
+	}
+
+	// 并发获取每个币种的市场数据
+	type SymbolData struct {
+		Symbol string      `json:"symbol"`
+		Data   interface{} `json:"data"`
+		Error  string      `json:"error,omitempty"`
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan SymbolData, len(defaultCoins))
+
+	for _, symbol := range defaultCoins {
+		wg.Add(1)
+		go func(sym string) {
+			defer wg.Done()
+			data, err := market.Get(sym)
+			result := SymbolData{
+				Symbol: sym,
+			}
+			if err != nil {
+				result.Error = err.Error()
+			} else {
+				result.Data = data
+			}
+			results <- result
+		}(symbol)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// 收集结果
+	var marketData []SymbolData
+	for result := range results {
+		marketData = append(marketData, result)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"symbols": marketData,
+		"count":   len(marketData),
+	})
+}
+
+// handleMarketSymbols 获取支持的交易对列表
+func (s *Server) handleMarketSymbols(c *gin.Context) {
+	// 如果有WSMonitor实例，获取当前监控的币种
+	var symbols []string
+	
+	if market.WSMonitorCli != nil {
+		// 从API获取所有USDT永续合约
+		apiClient := market.NewAPIClient()
+		exchangeInfo, err := apiClient.GetExchangeInfo()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取交易对信息失败: %v", err)})
+			return
+		}
+
+		for _, symbol := range exchangeInfo.Symbols {
+			if symbol.Status == "TRADING" && 
+			   symbol.ContractType == "PERPETUAL" && 
+			   strings.HasSuffix(strings.ToUpper(symbol.Symbol), "USDT") {
+				symbols = append(symbols, symbol.Symbol)
+			}
+		}
+	} else {
+		// 返回默认的热门币种
+		symbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "HYPEUSDT"}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"symbols": symbols,
+		"count":   len(symbols),
+	})
+}
+
+// handleMarketData 获取指定交易对的详细市场数据
+func (s *Server) handleMarketData(c *gin.Context) {
+	symbol := c.Param("symbol")
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "交易对不能为空"})
+		return
+	}
+
+	// 标准化symbol
+	symbol = market.Normalize(symbol)
+
+	data, err := market.Get(symbol)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取市场数据失败: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, data)
+}
+
+// handleMarketWebSocket 市场数据WebSocket推送
+func (s *Server) handleMarketWebSocket(c *gin.Context) {
+	// 升级HTTP连接到WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // 允许所有来源
+		},
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Printf("WebSocket升级失败: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	log.Printf("市场数据WebSocket客户端连接: %s", conn.RemoteAddr())
+
+	// 启动数据推送协程
+	go s.pushMarketData(conn)
+
+	// 保持连接，等待客户端断开
+	for {
+		// 读取ping消息以保持连接活跃
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("WebSocket客户端断开连接: %v", err)
+			break
+		}
+	}
+}
+
+// pushMarketData 推送市场数据到WebSocket客户端
+func (s *Server) pushMarketData(conn *websocket.Conn) {
+	ticker := time.NewTicker(5 * time.Second) // 每5秒推送一次
+	defer ticker.Stop()
+
+	// 默认币种列表
+	defaultSymbols := []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"}
+	
+	// 如果有配置的币种，使用配置的
+	if defaultCoinsStr, _ := s.database.GetSystemConfig("default_coins"); defaultCoinsStr != "" {
+		var coins []string
+		if json.Unmarshal([]byte(defaultCoinsStr), &coins) == nil && len(coins) > 0 {
+			defaultSymbols = coins
+		}
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			// 收集所有币种的市场数据
+			type SymbolData struct {
+				Symbol string      `json:"symbol"`
+				Data   interface{} `json:"data,omitempty"`
+				Error  string      `json:"error,omitempty"`
+			}
+
+			var marketData []SymbolData
+			
+			for _, symbol := range defaultSymbols {
+				data, err := market.Get(symbol)
+				symbolData := SymbolData{
+					Symbol: symbol,
+				}
+				if err != nil {
+					symbolData.Error = err.Error()
+				} else {
+					symbolData.Data = data
+				}
+				marketData = append(marketData, symbolData)
+			}
+
+			// 推送数据到客户端
+			message := map[string]interface{}{
+				"type":    "market_update",
+				"symbols": marketData,
+				"time":    time.Now().Format("2006-01-02 15:04:05"),
+			}
+
+			if err := conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket推送数据失败: %v", err)
+				return
+			}
+
+		}
 	}
 }

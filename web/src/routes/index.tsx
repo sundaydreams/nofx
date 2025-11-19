@@ -3,6 +3,7 @@ import MainLayout from '../layouts/MainLayout'
 import AuthLayout from '../layouts/AuthLayout'
 import { LandingPage } from '../pages/LandingPage'
 import { FAQPage } from '../pages/FAQPage'
+import MarketPage from '../pages/MarketPage'
 import { LoginPage } from '../components/LoginPage'
 import { RegisterPage } from '../components/RegisterPage'
 import { ResetPasswordPage } from '../components/ResetPasswordPage'
@@ -40,6 +41,10 @@ export const router = createBrowserRouter([
       {
         path: '/faq',
         element: <FAQPage />,
+      },
+      {
+        path: '/market',
+        element: <MarketPage />,
       },
       {
         path: '/competition',

@@ -18,6 +18,7 @@ export const translations = {
 
     // Navigation
     realtimeNav: 'Live',
+    marketNav: 'Market',
     configNav: 'Config',
     dashboardNav: 'Dashboard',
     faqNav: 'FAQ',
@@ -866,6 +867,7 @@ export const translations = {
 
     // Navigation
     realtimeNav: '实时',
+    marketNav: '行情',
     configNav: '配置',
     dashboardNav: '看板',
     faqNav: '常见问题',
