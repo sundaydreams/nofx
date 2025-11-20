@@ -228,6 +228,8 @@ export function ExchangeConfigModal({
     } else if (selectedExchange?.id === 'okx') {
       if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
       await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), testnet)
+    } else if (selectedExchange?.id === 'simulation') {
+      await onSave(selectedExchangeId, '', '', testnet)
     } else {
       // 默认情况（其他CEX交易所）
       if (!apiKey.trim() || !secretKey.trim()) return

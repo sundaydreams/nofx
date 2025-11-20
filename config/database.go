@@ -294,13 +294,14 @@ func (d *Database) initDefaultData() error {
 	}
 
 	// 初始化交易所（使用default用户）
-	exchanges := []struct {
-		id, name, typ string
-	}{
-		{"binance", "Binance Futures", "binance"},
-		{"hyperliquid", "Hyperliquid", "hyperliquid"},
-		{"aster", "Aster DEX", "aster"},
-	}
+    exchanges := []struct {
+        id, name, typ string
+    }{
+        {"binance", "Binance Futures", "cex"},
+        {"hyperliquid", "Hyperliquid", "dex"},
+        {"aster", "Aster DEX", "dex"},
+        {"simulation", "Simulation (Paper Trading)", "dex"},
+    }
 
 	for _, exchange := range exchanges {
 		_, err := d.db.Exec(`

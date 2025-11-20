@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2025-11-20
+
+### Added
+- Simulation (Paper Trading) exchange available by default and enabled for new users
+- Frontend support to save `simulation` exchange without API keys
+- Vite dev proxy reads `NOFX_BACKEND_PORT` to align frontend/backend ports
+
+### Changed
+- Normalize default exchange types to `cex`/`dex` (Binance→cex, Hyperliquid/Aster/Simulation→dex)
+
+### Fixed
+- Exchange list missing `simulation` for some users; auto-populate defaults when empty
+- Saving `simulation` config had no effect due to strict key validation in modal
+
+
 ## [3.0.0] - 2025-10-30
 
 ### Added - Major Architecture Transformation 🚀

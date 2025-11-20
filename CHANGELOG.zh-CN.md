@@ -24,6 +24,21 @@ NOFX 项目的所有重要更改都将记录在此文件中。
 
 ---
 
+## [1.1.1] - 2025-11-20
+
+### 新增
+- 默认提供并启用 `Simulation (Paper Trading)` 交易所（新用户）
+- 前端支持在不填密钥的情况下保存 `simulation` 交易所配置
+- 开发代理读取 `NOFX_BACKEND_PORT`，前后端端口联动
+
+### 变更
+- 统一默认交易所类型为 `cex`/`dex`（Binance→cex，Hyperliquid/Aster/Simulation→dex）
+
+### 修复
+- 部分用户交易所列表缺失 `simulation`；当列表为空时自动填充默认交易所
+- `simulation` 保存因弹窗校验过严导致无响应的问题
+
+
 ## [3.0.0] - 2025-10-30
 
 ### 新增 - 重大架构变革 🚀
