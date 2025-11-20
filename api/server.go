@@ -840,8 +840,8 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 
 // handleStartTrader 启动交易员
 func (s *Server) handleStartTrader(c *gin.Context) {
-	userID := c.GetString("user_id")
-	traderID := c.Param("id")
+    userID := c.GetString("user_id")
+    traderID := c.Param("id")
 
 	// 校验交易员是否属于当前用户
 	traderRecord, _, _, err := s.database.GetTraderConfig(userID, traderID)
@@ -853,11 +853,15 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 	// 获取模板名称
 	templateName := traderRecord.SystemPromptTemplate
 
-	trader, err := s.traderManager.GetTrader(traderID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "交易员不存在"})
-		return
-	}
+    trader, err := s.traderManager.GetTrader(traderID)
+    if err != nil {
+        _ = s.traderManager.LoadTraderByID(s.database, userID, traderID)
+        trader, err = s.traderManager.GetTrader(traderID)
+        if err != nil {
+            c.JSON(http.StatusNotFound, gin.H{"error": "交易员不存在"})
+            return
+        }
+    }
 
 	// 检查交易员是否已经在运行
 	status := trader.GetStatus()
